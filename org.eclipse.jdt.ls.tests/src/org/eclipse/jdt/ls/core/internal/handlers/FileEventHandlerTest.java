@@ -18,15 +18,19 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.when;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+import org.apache.commons.io.FileUtils;
+import org.eclipse.core.resources.IResource;
 import org.eclipse.core.runtime.NullProgressMonitor;
 import org.eclipse.jdt.core.ICompilationUnit;
 import org.eclipse.jdt.core.IJavaProject;
 import org.eclipse.jdt.core.IPackageFragment;
 import org.eclipse.jdt.core.IPackageFragmentRoot;
+import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.ls.core.internal.JDTUtils;
 import org.eclipse.jdt.ls.core.internal.TextEditUtil;
@@ -40,18 +44,27 @@ import org.eclipse.lsp4j.TextDocumentEdit;
 import org.eclipse.lsp4j.TextEdit;
 import org.eclipse.lsp4j.WorkspaceEdit;
 import org.eclipse.lsp4j.jsonrpc.messages.Either;
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
 public class FileEventHandlerTest extends AbstractProjectsManagerBasedTest {
 	private ClientPreferences clientPreferences;
 	private IPackageFragmentRoot sourceFolder;
+	private IJavaProject javaProject;
 
 	@Before
 	public void setup() throws Exception {
-		IJavaProject javaProject = newEmptyProject();
+		javaProject = newEmptyProject();
 		sourceFolder = javaProject.getPackageFragmentRoot(javaProject.getProject().getFolder("src"));
 		clientPreferences = preferenceManager.getClientPreferences();
+	}
+
+	@After
+	public void tearDown() throws Exception {
+		for (ICompilationUnit cu : JavaCore.getWorkingCopies(null)) {
+			cu.discardWorkingCopy();
+		}
 	}
 
 	@Test
@@ -66,7 +79,7 @@ public class FileEventHandlerTest extends AbstractProjectsManagerBasedTest {
 		builderA.append("	}\n");
 		builderA.append("}\n");
 		ICompilationUnit cuA = pack1.createCompilationUnit("ANew.java", builderA.toString(), false, null);
-		
+
 		StringBuilder builderB = new StringBuilder();
 		builderB.append("package test1;\n");
 		builderB.append("public class B {\n");
@@ -226,5 +239,123 @@ public class FileEventHandlerTest extends AbstractProjectsManagerBasedTest {
 				"	public void foo() {}\n" +
 				"}\n"
 				);
+	}
+
+	@Test
+	public void testMoveMultiFiles() throws JavaModelException, BadLocationException {
+		when(clientPreferences.isResourceOperationSupported()).thenReturn(true);
+
+		IPackageFragment pack1 = sourceFolder.createPackageFragment("jdtls.test1", false, null);
+		//@formatter:off
+		ICompilationUnit unitA = pack1.createCompilationUnit("A.java", "package jdtls.test1;\r\n" +
+				"\r\n" +
+				"public class A {\r\n" +
+				"	private B b = new B();\r\n" +
+				"}", true, null);
+		//@formatter:on
+
+		//@formatter:off
+		ICompilationUnit unitB = pack1.createCompilationUnit("B.java", "package jdtls.test1;\r\n" +
+				"\r\n" +
+				"public class B {\r\n" +
+				"}", true, null);
+		//@formatter:on
+
+		//@formatter:off
+		ICompilationUnit unitC = pack1.createCompilationUnit("C.java", "package jdtls.test1;\r\n" +
+				"\r\n" +
+				"public class C {\r\n" +
+				"	private B b = new B();\r\n" +
+				"}", true, null);
+		//@formatter:on
+
+		IPackageFragment pack2 = sourceFolder.createPackageFragment("jdtls.test2", false, null);
+
+		String uriA = JDTUtils.toURI(unitA);
+		String uriB = JDTUtils.toURI(unitB);
+		String newUriA = uriA.replace("test1", "test2");
+		String newUriB = uriB.replace("test1", "test2");
+		WorkspaceEdit edit = FileEventHandler.handleWillRenameFiles(
+			new FileRenameParams(Arrays.asList(
+				new FileRenameEvent(uriA, newUriA),
+				new FileRenameEvent(uriB, newUriB))),
+			new NullProgressMonitor());
+
+		assertNotNull(edit);
+		List<Either<TextDocumentEdit, ResourceOperation>> changes = edit.getDocumentChanges();
+		assertEquals(3, changes.size());
+
+		//@formatter:off
+		String expected = "package jdtls.test1;\r\n" +
+				"\r\n" +
+				"import jdtls.test2.B;\r\n" +
+				"\r\n" +
+				"public class C {\r\n" +
+				"	private B b = new B();\r\n" +
+				"}";
+		//@formatter:on
+		TextDocumentEdit textEdit = changes.get(0).getLeft();
+		assertNotNull(textEdit);
+		List<TextEdit> edits = new ArrayList<>(textEdit.getEdits());
+		assertEquals(expected, TextEditUtil.apply(unitC.getSource(), edits));
+
+		//@formatter:off
+		expected = "package jdtls.test2;\r\n" +
+				"\r\n" +
+				"public class B {\r\n" +
+				"}";
+		//@formatter:on
+		textEdit = changes.get(1).getLeft();
+		assertNotNull(textEdit);
+		edits = new ArrayList<>(textEdit.getEdits());
+		assertEquals(expected, TextEditUtil.apply(unitB.getSource(), edits));
+
+		//@formatter:off
+		expected = "package jdtls.test2;\r\n" +
+				"\r\n" +
+				"public class A {\r\n" +
+				"	private B b = new B();\r\n" +
+				"}";
+		//@formatter:on
+		textEdit = changes.get(2).getLeft();
+		assertNotNull(textEdit);
+		edits = new ArrayList<>(textEdit.getEdits());
+		assertEquals(expected, TextEditUtil.apply(unitA.getSource(), edits));
+	}
+
+	@Test
+	public void testMoveNonClasspathFile() throws Exception {
+		when(clientPreferences.isResourceOperationSupported()).thenReturn(true);
+
+		IPackageFragment pack1 = sourceFolder.createPackageFragment("jdtls.test1", true, null);
+		File projectRoot = javaProject.getProject().getLocation().toFile();
+		File file = new File(projectRoot, "Bar.java");
+		file.createNewFile();
+		String contents = "public class Bar {\r\n}";
+		FileUtils.writeStringToFile(file, contents);
+		ICompilationUnit bar = JDTUtils.resolveCompilationUnit(file.toURI());
+		bar.getResource().refreshLocal(IResource.DEPTH_ONE, null);
+
+		String uri = JDTUtils.toURI(bar);
+		String newUri = uri.replace("Bar.java", "src/jdtls/test1/Bar.java");
+		WorkspaceEdit edit = FileEventHandler.handleWillRenameFiles(
+			new FileRenameParams(Arrays.asList(new FileRenameEvent(uri, newUri))),
+			new NullProgressMonitor());
+
+		assertNotNull(edit);
+		List<Either<TextDocumentEdit, ResourceOperation>> changes = edit.getDocumentChanges();
+		assertEquals(1, changes.size());
+
+		//@formatter:off
+		String expected = "package jdtls.test1;\r\n" +
+				"public class Bar {\r\n" +
+				"}";
+		//@formatter:on
+		TextDocumentEdit textEdit = changes.get(0).getLeft();
+		assertNotNull(textEdit);
+		List<TextEdit> edits = new ArrayList<>(textEdit.getEdits());
+		bar.becomeWorkingCopy(null);
+		assertEquals(expected, TextEditUtil.apply(bar.getSource(), edits));
+		bar.discardWorkingCopy();
 	}
 }
