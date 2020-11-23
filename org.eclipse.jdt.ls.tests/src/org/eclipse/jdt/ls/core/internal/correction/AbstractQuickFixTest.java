@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2017 Microsoft Corporation and others.
+ * Copyright (c) 2017-2020 Microsoft Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License 2.0
  * which accompanies this distribution, and is available at
@@ -21,12 +21,9 @@ import static org.junit.Assert.fail;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Objects;
-import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -37,13 +34,12 @@ import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.compiler.IProblem;
 import org.eclipse.jdt.core.dom.CompilationUnit;
 import org.eclipse.jdt.core.manipulation.CoreASTProvider;
+import org.eclipse.jdt.ls.core.internal.CodeActionUtil;
 import org.eclipse.jdt.ls.core.internal.JDTUtils;
-import org.eclipse.jdt.ls.core.internal.TextEditUtil;
 import org.eclipse.jdt.ls.core.internal.handlers.CodeActionHandler;
 import org.eclipse.jdt.ls.core.internal.handlers.DiagnosticsHandler;
 import org.eclipse.jdt.ls.core.internal.managers.AbstractProjectsManagerBasedTest;
 import org.eclipse.jface.text.BadLocationException;
-import org.eclipse.jface.text.Document;
 import org.eclipse.lsp4j.CodeAction;
 import org.eclipse.lsp4j.CodeActionContext;
 import org.eclipse.lsp4j.CodeActionKind;
@@ -51,10 +47,7 @@ import org.eclipse.lsp4j.CodeActionParams;
 import org.eclipse.lsp4j.Command;
 import org.eclipse.lsp4j.Position;
 import org.eclipse.lsp4j.Range;
-import org.eclipse.lsp4j.ResourceOperation;
-import org.eclipse.lsp4j.TextDocumentEdit;
 import org.eclipse.lsp4j.TextDocumentIdentifier;
-import org.eclipse.lsp4j.TextEdit;
 import org.eclipse.lsp4j.WorkspaceEdit;
 import org.eclipse.lsp4j.jsonrpc.messages.Either;
 import org.junit.Assert;
@@ -300,39 +293,7 @@ public class AbstractQuickFixTest extends AbstractProjectsManagerBasedTest {
 		Assert.assertNotNull(c.getArguments());
 		Assert.assertTrue(c.getArguments().get(0) instanceof WorkspaceEdit);
 		WorkspaceEdit we = (WorkspaceEdit) c.getArguments().get(0);
-		if (we.getDocumentChanges() != null) {
-			return evaluateChanges(we.getDocumentChanges());
-		}
-		return evaluateChanges(we.getChanges());
-	}
-
-	private String evaluateChanges(List<Either<TextDocumentEdit, ResourceOperation>> documentChanges) throws BadLocationException, JavaModelException {
-		List<TextDocumentEdit> changes = documentChanges.stream().filter(e -> e.isLeft()).map(e -> e.getLeft()).collect(Collectors.toList());
-		assertFalse("No edits generated", changes.isEmpty());
-		Set<String> uris = changes.stream().map(tde -> tde.getTextDocument().getUri()).distinct().collect(Collectors.toSet());
-		assertEquals("Only one resource should be modified", 1, uris.size());
-		String uri = uris.iterator().next();
-		List<TextEdit> edits = changes.stream().flatMap(e -> e.getEdits().stream()).collect(Collectors.toList());
-		return evaluateChanges(uri, edits);
-	}
-
-	protected String evaluateChanges(Map<String, List<TextEdit>> changes) throws BadLocationException, JavaModelException {
-		Iterator<Entry<String, List<TextEdit>>> editEntries = changes.entrySet().iterator();
-		Entry<String, List<TextEdit>> entry = editEntries.next();
-		assertNotNull("No edits generated", entry);
-		assertEquals("More than one resource modified", false, editEntries.hasNext());
-		return evaluateChanges(entry.getKey(), entry.getValue());
-	}
-
-	private String evaluateChanges(String uri, List<TextEdit> edits) throws BadLocationException, JavaModelException {
-		assertFalse("No edits generated: " + edits, edits == null || edits.isEmpty());
-		ICompilationUnit cu = JDTUtils.resolveCompilationUnit(uri);
-		assertNotNull("CU not found: " + uri, cu);
-		Document doc = new Document();
-		if (cu.exists()) {
-			doc.set(cu.getSource());
-		}
-		return TextEditUtil.apply(doc, edits);
+		return CodeActionUtil.evaluateWorkspaceEdit(we);
 	}
 
 	public Command getCommand(Either<Command, CodeAction> codeAction) {

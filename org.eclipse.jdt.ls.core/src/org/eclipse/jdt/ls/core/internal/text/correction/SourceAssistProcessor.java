@@ -398,26 +398,34 @@ public class SourceAssistProcessor {
 		}
 
 		FixCorrectionProposal proposal = new FixCorrectionProposal(fix, null, IProposalRelevance.MAKE_VARIABLE_DECLARATION_FINAL, context, JavaCodeActionKind.SOURCE_GENERATE_FINAL_MODIFIERS);
-		WorkspaceEdit edit;
-		try {
-			edit = ChangeUtil.convertToWorkspaceEdit(proposal.getChange());
-		} catch (CoreException e) {
-			JavaLanguageServerPlugin.logException("Problem converting proposal to code actions", e);
-			return Optional.empty();
-		}
-
-		if (!ChangeUtil.hasChanges(edit)) {
-			return Optional.empty();
-		}
-		Command command = new Command(ActionMessages.GenerateFinalModifiersAction_label, CodeActionHandler.COMMAND_ID_APPLY_EDIT, Collections.singletonList(edit));
-		if (preferenceManager.getClientPreferences().isSupportedCodeActionKind(proposal.getKind())) {
+		if (this.preferenceManager.getClientPreferences().isResolveCodeActionSupported()) {
 			CodeAction codeAction = new CodeAction(ActionMessages.GenerateFinalModifiersAction_label);
 			codeAction.setKind(proposal.getKind());
-			codeAction.setCommand(command);
+			codeAction.setData(proposal);
 			codeAction.setDiagnostics(Collections.EMPTY_LIST);
 			return Optional.of(Either.forRight(codeAction));
 		} else {
-			return Optional.of(Either.forLeft(command));
+			WorkspaceEdit edit;
+			try {
+				edit = ChangeUtil.convertToWorkspaceEdit(proposal.getChange());
+			} catch (CoreException e) {
+				JavaLanguageServerPlugin.logException("Problem converting proposal to code actions", e);
+				return Optional.empty();
+			}
+	
+			if (!ChangeUtil.hasChanges(edit)) {
+				return Optional.empty();
+			}
+			Command command = new Command(ActionMessages.GenerateFinalModifiersAction_label, CodeActionHandler.COMMAND_ID_APPLY_EDIT, Collections.singletonList(edit));
+			if (preferenceManager.getClientPreferences().isSupportedCodeActionKind(proposal.getKind())) {
+				CodeAction codeAction = new CodeAction(ActionMessages.GenerateFinalModifiersAction_label);
+				codeAction.setKind(proposal.getKind());
+				codeAction.setCommand(command);
+				codeAction.setDiagnostics(Collections.EMPTY_LIST);
+				return Optional.of(Either.forRight(codeAction));
+			} else {
+				return Optional.of(Either.forLeft(command));
+			}
 		}
 	}
 

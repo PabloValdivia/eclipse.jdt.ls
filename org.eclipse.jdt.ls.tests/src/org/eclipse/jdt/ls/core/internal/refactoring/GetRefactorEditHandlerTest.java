@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2019 Microsoft Corporation and others.
+ * Copyright (c) 2019-2020 Microsoft Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License 2.0
  * which accompanies this distribution, and is available at
@@ -69,7 +69,7 @@ public class GetRefactorEditHandlerTest extends AbstractSelectionTest {
 		RefactorWorkspaceEdit refactorEdit = GetRefactorEditHandler.getEditsForRefactor(editParams);
 		Assert.assertNotNull(refactorEdit);
 		Assert.assertNotNull(refactorEdit.edit);
-		String actual = evaluateChanges(refactorEdit.edit.getChanges());
+		String actual = CodeActionUtil.evaluateWorkspaceEdit(refactorEdit.edit);
 
 		buf = new StringBuilder();
 		buf.append("package test1;\n");
@@ -106,7 +106,7 @@ public class GetRefactorEditHandlerTest extends AbstractSelectionTest {
 		RefactorWorkspaceEdit refactorEdit = GetRefactorEditHandler.getEditsForRefactor(editParams);
 		Assert.assertNotNull(refactorEdit);
 		Assert.assertNotNull(refactorEdit.edit);
-		String actual = evaluateChanges(refactorEdit.edit.getChanges());
+		String actual = CodeActionUtil.evaluateWorkspaceEdit(refactorEdit.edit);
 
 		buf = new StringBuilder();
 		buf.append("package test1;\n");
@@ -143,7 +143,7 @@ public class GetRefactorEditHandlerTest extends AbstractSelectionTest {
 		RefactorWorkspaceEdit refactorEdit = GetRefactorEditHandler.getEditsForRefactor(editParams);
 		Assert.assertNotNull(refactorEdit);
 		Assert.assertNotNull(refactorEdit.edit);
-		String actual = evaluateChanges(refactorEdit.edit.getChanges());
+		String actual = CodeActionUtil.evaluateWorkspaceEdit(refactorEdit.edit);
 
 		buf = new StringBuilder();
 		buf.append("package test1;\n");
@@ -181,7 +181,7 @@ public class GetRefactorEditHandlerTest extends AbstractSelectionTest {
 		RefactorWorkspaceEdit refactorEdit = GetRefactorEditHandler.getEditsForRefactor(editParams);
 		Assert.assertNotNull(refactorEdit);
 		Assert.assertNotNull(refactorEdit.edit);
-		String actual = evaluateChanges(refactorEdit.edit.getChanges());
+		String actual = CodeActionUtil.evaluateWorkspaceEdit(refactorEdit.edit);
 
 		buf = new StringBuilder();
 		buf.append("package test1;\n");
@@ -228,7 +228,7 @@ public class GetRefactorEditHandlerTest extends AbstractSelectionTest {
 		RefactorWorkspaceEdit refactorEdit = GetRefactorEditHandler.getEditsForRefactor(editParams);
 		Assert.assertNotNull(refactorEdit);
 		Assert.assertNotNull(refactorEdit.edit);
-		String actual = evaluateChanges(refactorEdit.edit.getChanges());
+		String actual = CodeActionUtil.evaluateWorkspaceEdit(refactorEdit.edit);
 
 		buf = new StringBuilder();
 		buf.append("package test1;\n");

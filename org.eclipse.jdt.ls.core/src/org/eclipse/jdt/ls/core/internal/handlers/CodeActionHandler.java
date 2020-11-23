@@ -16,7 +16,9 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import org.apache.commons.lang3.StringUtils;
@@ -56,7 +58,7 @@ import org.eclipse.lsp4j.WorkspaceEdit;
 import org.eclipse.lsp4j.jsonrpc.messages.Either;
 
 public class CodeActionHandler {
-
+	public static final ResponseStore<ChangeCorrectionProposal> codeActionStore = new ResponseStore<>();
 	public static final String COMMAND_ID_APPLY_EDIT = "java.apply.workspaceEdit";
 
 	private QuickFixProcessor quickFixProcessor;
@@ -77,6 +79,7 @@ public class CodeActionHandler {
 	}
 
 	public List<Either<Command, CodeAction>> getCodeActionCommands(CodeActionParams params, IProgressMonitor monitor) {
+		codeActionStore.clear();
 		if (monitor.isCanceled()) {
 			return Collections.emptyList();
 		}
@@ -172,13 +175,35 @@ public class CodeActionHandler {
 		if (monitor.isCanceled()) {
 			return Collections.emptyList();
 		}
+
+		populateDataFields(codeActions);
 		return codeActions;
+	}
+
+	private void populateDataFields(List<Either<Command, CodeAction>> codeActions) {
+		ResponseStore.ResponseItem<ChangeCorrectionProposal> response = codeActionStore.createResponse();
+		List<ChangeCorrectionProposal> proposals = new ArrayList<>();
+		codeActions.forEach(action -> {
+			if (action.isRight() && action.getRight().getData() instanceof ChangeCorrectionProposal) {
+				ChangeCorrectionProposal proposal = (ChangeCorrectionProposal) action.getRight().getData();
+				Map<String, String> data = new HashMap<>();
+				data.put(CodeActionResolveHandler.DATA_FIELD_REQUEST_ID, String.valueOf(response.getId()));
+				data.put(CodeActionResolveHandler.DATA_FIELD_PROPOSAL_ID, String.valueOf(proposals.size()));
+				action.getRight().setData(data);
+				proposals.add(proposal);
+			}
+		});
+
+		if (!proposals.isEmpty()) {
+			response.setProposals(proposals);
+			codeActionStore.store(response);
+		}
 	}
 
 	private Optional<Either<Command, CodeAction>> getCodeActionFromProposal(ChangeCorrectionProposal proposal, CodeActionContext context) throws CoreException {
 		String name = proposal.getName();
 
-		Command command;
+		Command command = null;
 		if (proposal instanceof CUCorrectionCommandProposal) {
 			CUCorrectionCommandProposal commandProposal = (CUCorrectionCommandProposal) proposal;
 			command = new Command(name, commandProposal.getCommand(), commandProposal.getCommandArguments());
@@ -189,18 +214,24 @@ public class CodeActionHandler {
 			AssignToVariableAssistCommandProposal commandProposal = (AssignToVariableAssistCommandProposal) proposal;
 			command = new Command(name, commandProposal.getCommand(), commandProposal.getCommandArguments());
 		} else {
-			WorkspaceEdit edit = ChangeUtil.convertToWorkspaceEdit(proposal.getChange());
-			if (!ChangeUtil.hasChanges(edit)) {
-				return Optional.empty();
+			if (!this.preferenceManager.getClientPreferences().isResolveCodeActionSupported()) {
+				WorkspaceEdit edit = ChangeUtil.convertToWorkspaceEdit(proposal.getChange());
+				if (!ChangeUtil.hasChanges(edit)) {
+					return Optional.empty();
+				}
+				command = new Command(name, COMMAND_ID_APPLY_EDIT, Collections.singletonList(edit));
 			}
-			command = new Command(name, COMMAND_ID_APPLY_EDIT, Collections.singletonList(edit));
 		}
 
 		if (preferenceManager.getClientPreferences().isSupportedCodeActionKind(proposal.getKind())) {
 			// TODO: Should set WorkspaceEdit directly instead of Command
 			CodeAction codeAction = new CodeAction(name);
 			codeAction.setKind(proposal.getKind());
-			codeAction.setCommand(command);
+			if (command == null) { // lazy resolve the edit.
+				codeAction.setData(proposal);
+			} else {
+				codeAction.setCommand(command);
+			}
 			codeAction.setDiagnostics(context.getDiagnostics());
 			return Optional.of(Either.forRight(codeAction));
 		} else {
