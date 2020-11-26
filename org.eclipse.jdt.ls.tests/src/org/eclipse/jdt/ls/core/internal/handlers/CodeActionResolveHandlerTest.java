@@ -177,16 +177,14 @@ public class CodeActionResolveHandlerTest extends AbstractCompilationUnitBasedTe
 		when(preferenceManager.getClientPreferences().isResolveCodeActionSupported()).thenReturn(true);
 
 		StringBuilder buf = new StringBuilder();
-		buf.append("import java.util.stream.Stream;\n");
 		buf.append("public class E {\n");
-		buf.append("    private Stream<String> asHex(Stream<Integer> stream) {\n");
-		buf.append("        return stream.map(Integer::toHexString);\n");
+		buf.append("    public  E(int count) {\n");
 		buf.append("    }\n");
 		buf.append("}\n");
 		ICompilationUnit unit = defaultPackage.createCompilationUnit("E.java", buf.toString(), false, null);
 		CodeActionParams params = new CodeActionParams();
 		params.setTextDocument(new TextDocumentIdentifier(JDTUtils.toURI(unit)));
-		Range range = new Range(new Position(3, 36), new Position(3, 36));
+		Range range = CodeActionUtil.getRange(unit, "count");
 		params.setRange(range);
 		CodeActionContext context = new CodeActionContext(
 			Collections.emptyList(),
@@ -202,20 +200,21 @@ public class CodeActionResolveHandlerTest extends AbstractCompilationUnitBasedTe
 			Assert.assertNotNull("Should preserve the data property for the unresolved code action", codeAction.getRight().getData());
 		}
 
-		Optional<Either<Command, CodeAction>> convertToLambdaResponse = codeActions.stream().filter(codeAction -> {
-			return "Convert to lambda expression".equals(codeAction.getRight().getTitle());
+		Optional<Either<Command, CodeAction>> assignToNewFieldResponse = codeActions.stream().filter(codeAction -> {
+			return "Assign parameter to new field".equals(codeAction.getRight().getTitle());
 		}).findFirst();
-		Assert.assertTrue("Should return the quick assist 'Convert to lambda expression'", convertToLambdaResponse.isPresent());
-		CodeAction unresolvedCodeAction = convertToLambdaResponse.get().getRight();
+		Assert.assertTrue("Should return the quick assist 'Convert to method reference'", assignToNewFieldResponse.isPresent());
+		CodeAction unresolvedCodeAction = assignToNewFieldResponse.get().getRight();
 
 		CodeAction resolvedCodeAction = server.resolveCodeAction(unresolvedCodeAction).join();
 		Assert.assertNotNull("Should resolve the edit property in the resolveCodeAction request", resolvedCodeAction.getEdit());
 		String actual = CodeActionUtil.evaluateWorkspaceEdit(resolvedCodeAction.getEdit());
 		buf = new StringBuilder();
-		buf.append("import java.util.stream.Stream;\n");
 		buf.append("public class E {\n");
-		buf.append("    private Stream<String> asHex(Stream<Integer> stream) {\n");
-		buf.append("        return stream.map(arg0 -> Integer.toHexString(arg0));\n");
+		buf.append("    private int count;\n");
+		buf.append("\n");
+		buf.append("    public  E(int count) {\n");
+		buf.append("        this.count = count;\n");
 		buf.append("    }\n");
 		buf.append("}\n");
 		Assert.assertEquals(buf.toString(), actual);
