@@ -57,6 +57,7 @@ import org.eclipse.jdt.ls.core.internal.corrections.InnovationContext;
 import org.eclipse.jdt.ls.core.internal.corrections.proposals.FixCorrectionProposal;
 import org.eclipse.jdt.ls.core.internal.corrections.proposals.IProposalRelevance;
 import org.eclipse.jdt.ls.core.internal.handlers.CodeActionHandler;
+import org.eclipse.jdt.ls.core.internal.handlers.CodeActionProposal;
 import org.eclipse.jdt.ls.core.internal.handlers.GenerateConstructorsHandler;
 import org.eclipse.jdt.ls.core.internal.handlers.GenerateConstructorsHandler.CheckConstructorsResponse;
 import org.eclipse.jdt.ls.core.internal.handlers.GenerateDelegateMethodsHandler;
@@ -115,9 +116,12 @@ public class SourceAssistProcessor {
 			Optional<Either<Command, CodeAction>> organizeImports = getOrganizeImportsAction(params);
 			addSourceActionCommand($, params.getContext(), organizeImports);
 		} else {
-			TextEdit organizeImportsEdit = getOrganizeImportsProposal(context);
-			Optional<Either<Command, CodeAction>> organizeImports = convertToWorkspaceEditAction(params.getContext(), context.getCompilationUnit(), CorrectionMessages.ReorgCorrectionsSubProcessor_organizeimports_description,
-					CodeActionKind.SourceOrganizeImports, organizeImportsEdit);
+			CodeActionProposal organizeImportsProposal = (pm) -> {
+				TextEdit edit = getOrganizeImportsProposal(context, pm);
+				return convertToWorkspaceEdit(cu, edit);
+			};
+			Optional<Either<Command, CodeAction>> organizeImports = getCodeActionFromProposal(params.getContext(), context.getCompilationUnit(), CorrectionMessages.ReorgCorrectionsSubProcessor_organizeimports_description,
+					CodeActionKind.SourceOrganizeImports, organizeImportsProposal);
 			addSourceActionCommand($, params.getContext(), organizeImports);
 		}
 
@@ -149,9 +153,12 @@ public class SourceAssistProcessor {
 				Optional<Either<Command, CodeAction>> generateToStringCommand = getGenerateToStringAction(params);
 				addSourceActionCommand($, params.getContext(), generateToStringCommand);
 			} else {
-				TextEdit toStringEdit = GenerateToStringHandler.generateToString(type, new LspVariableBinding[0], monitor);
-				Optional<Either<Command, CodeAction>> generateToStringCommand = convertToWorkspaceEditAction(params.getContext(), context.getCompilationUnit(), ActionMessages.GenerateToStringAction_label,
-						JavaCodeActionKind.SOURCE_GENERATE_TO_STRING, toStringEdit);
+				CodeActionProposal generateToStringProposal = (pm) -> {
+					TextEdit edit = GenerateToStringHandler.generateToString(type, new LspVariableBinding[0], pm);
+					return convertToWorkspaceEdit(cu, edit);
+				};
+				Optional<Either<Command, CodeAction>> generateToStringCommand = getCodeActionFromProposal(params.getContext(), context.getCompilationUnit(), ActionMessages.GenerateToStringAction_label,
+						JavaCodeActionKind.SOURCE_GENERATE_TO_STRING, generateToStringProposal);
 				addSourceActionCommand($, params.getContext(), generateToStringCommand);
 			}
 		}
@@ -201,12 +208,12 @@ public class SourceAssistProcessor {
 		result.add(targetAction);
 	}
 
-	private TextEdit getOrganizeImportsProposal(IInvocationContext context) {
+	private TextEdit getOrganizeImportsProposal(IInvocationContext context, IProgressMonitor monitor) {
 		ICompilationUnit unit = context.getCompilationUnit();
 		CompilationUnit astRoot = context.getASTRoot();
 		OrganizeImportsOperation op = new OrganizeImportsOperation(unit, astRoot, true, false, true, null);
 		try {
-			TextEdit edit = op.createTextEdit(null);
+			TextEdit edit = op.createTextEdit(monitor);
 			TextEdit staticEdit = OrganizeImportsHandler.wrapStaticImports(edit, astRoot, unit);
 			if (staticEdit.getChildrenSize() > 0) {
 				return staticEdit;
@@ -252,9 +259,12 @@ public class SourceAssistProcessor {
 			if (accessors == null || accessors.length == 0) {
 				return Optional.empty();
 			} else if (accessors.length == 1 || !preferenceManager.getClientPreferences().isAdvancedGenerateAccessorsSupported()) {
-				GenerateGetterSetterOperation operation = new GenerateGetterSetterOperation(type, context.getASTRoot(), preferenceManager.getPreferences().isCodeGenerationTemplateGenerateComments());
-				TextEdit edit = operation.createTextEdit(null, accessors);
-				return convertToWorkspaceEditAction(params.getContext(), context.getCompilationUnit(), ActionMessages.GenerateGetterSetterAction_label, JavaCodeActionKind.SOURCE_GENERATE_ACCESSORS, edit);
+				CodeActionProposal getAccessorsProposal = (pm) -> {
+					GenerateGetterSetterOperation operation = new GenerateGetterSetterOperation(type, context.getASTRoot(), preferenceManager.getPreferences().isCodeGenerationTemplateGenerateComments());
+					TextEdit edit = operation.createTextEdit(pm, accessors);
+					return convertToWorkspaceEdit(context.getCompilationUnit(), edit);
+				};
+				return getCodeActionFromProposal(params.getContext(), context.getCompilationUnit(), ActionMessages.GenerateGetterSetterAction_label, JavaCodeActionKind.SOURCE_GENERATE_ACCESSORS, getAccessorsProposal);
 			} else {
 				Command command = new Command(ActionMessages.GenerateGetterSetterAction_ellipsisLabel, COMMAND_ID_ACTION_GENERATEACCESSORSPROMPT, Collections.singletonList(params));
 				if (preferenceManager.getClientPreferences().isSupportedCodeActionKind(JavaCodeActionKind.SOURCE_GENERATE_ACCESSORS)) {
@@ -323,9 +333,9 @@ public class SourceAssistProcessor {
 		if (!preferenceManager.getClientPreferences().isGenerateToStringPromptSupported()) {
 			return Optional.empty();
 		}
-		Command command = new Command(ActionMessages.GenerateToStringAction_label, COMMAND_ID_ACTION_GENERATETOSTRINGPROMPT, Collections.singletonList(params));
+		Command command = new Command(ActionMessages.GenerateToStringAction_ellipsisLabel, COMMAND_ID_ACTION_GENERATETOSTRINGPROMPT, Collections.singletonList(params));
 		if (preferenceManager.getClientPreferences().isSupportedCodeActionKind(JavaCodeActionKind.SOURCE_GENERATE_TO_STRING)) {
-			CodeAction codeAction = new CodeAction(ActionMessages.GenerateToStringAction_label);
+			CodeAction codeAction = new CodeAction(ActionMessages.GenerateToStringAction_ellipsisLabel);
 			codeAction.setKind(JavaCodeActionKind.SOURCE_GENERATE_TO_STRING);
 			codeAction.setCommand(command);
 			codeAction.setDiagnostics(Collections.EMPTY_LIST);
@@ -350,8 +360,11 @@ public class SourceAssistProcessor {
 				return Optional.empty();
 			}
 			if (status.constructors.length == 1 && status.fields.length == 0) {
-				TextEdit edit = GenerateConstructorsHandler.generateConstructors(type, status.constructors, status.fields, monitor);
-				return convertToWorkspaceEditAction(params.getContext(), type.getCompilationUnit(), ActionMessages.GenerateConstructorsAction_label, kind, edit);
+				CodeActionProposal generateConstructorsProposal = (pm) -> {
+					TextEdit edit = GenerateConstructorsHandler.generateConstructors(type, status.constructors, status.fields, pm);
+					return convertToWorkspaceEdit(type.getCompilationUnit(), edit);
+				};
+				return getCodeActionFromProposal(params.getContext(), type.getCompilationUnit(), ActionMessages.GenerateConstructorsAction_label, kind, generateConstructorsProposal);
 			}
 
 			Command command = new Command(ActionMessages.GenerateConstructorsAction_ellipsisLabel, COMMAND_ID_ACTION_GENERATECONSTRUCTORSPROMPT, Collections.singletonList(params));
@@ -429,22 +442,36 @@ public class SourceAssistProcessor {
 		}
 	}
 
-	private Optional<Either<Command, CodeAction>> convertToWorkspaceEditAction(CodeActionContext context, ICompilationUnit cu, String name, String kind, TextEdit edit) {
-		WorkspaceEdit workspaceEdit = convertToWorkspaceEdit(cu, edit);
-		if (!ChangeUtil.hasChanges(workspaceEdit)) {
-			return Optional.empty();
-		}
-
-		Command command = new Command(name, CodeActionHandler.COMMAND_ID_APPLY_EDIT, Collections.singletonList(workspaceEdit));
-		if (preferenceManager.getClientPreferences().isSupportedCodeActionKind(kind)) {
+	private Optional<Either<Command, CodeAction>> getCodeActionFromProposal(CodeActionContext context, ICompilationUnit cu, String name, String kind, CodeActionProposal proposal) {
+		if (preferenceManager.getClientPreferences().isResolveCodeActionSupported()) {
 			CodeAction codeAction = new CodeAction(name);
 			codeAction.setKind(kind);
-			codeAction.setCommand(command);
-			codeAction.setDiagnostics(context.getDiagnostics());
+			codeAction.setData(proposal);
+			codeAction.setDiagnostics(Collections.EMPTY_LIST);
 			return Optional.of(Either.forRight(codeAction));
-		} else {
-			return Optional.of(Either.forLeft(command));
 		}
+
+		try {
+			WorkspaceEdit edit =  proposal.resolveEdit(new NullProgressMonitor());
+			if (!ChangeUtil.hasChanges(edit)) {
+				return Optional.empty();
+			}
+	
+			Command command = new Command(name, CodeActionHandler.COMMAND_ID_APPLY_EDIT, Collections.singletonList(edit));
+			if (preferenceManager.getClientPreferences().isSupportedCodeActionKind(kind)) {
+				CodeAction codeAction = new CodeAction(name);
+				codeAction.setKind(kind);
+				codeAction.setCommand(command);
+				codeAction.setDiagnostics(context.getDiagnostics());
+				return Optional.of(Either.forRight(codeAction));
+			} else {
+				return Optional.of(Either.forLeft(command));
+			}
+		} catch (OperationCanceledException | CoreException e) {
+			JavaLanguageServerPlugin.logException("Problem converting proposal to code actions", e);
+		}
+
+		return null;
 	}
 
 	private boolean hasFields(IType type, boolean includeStatic) throws JavaModelException {

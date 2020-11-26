@@ -221,6 +221,57 @@ public class CodeActionResolveHandlerTest extends AbstractCompilationUnitBasedTe
 		Assert.assertEquals(buf.toString(), actual);
 	}
 
+	@Test
+	public void testResolveCodeAction_SourceActions() throws Exception {
+		when(preferenceManager.getClientPreferences().isResolveCodeActionSupported()).thenReturn(true);
+
+		StringBuilder buf = new StringBuilder();
+		buf.append("public class E {\n");
+		buf.append("    private void hello() {\n");
+		buf.append("    }\n");
+		buf.append("}\n");
+		ICompilationUnit unit = defaultPackage.createCompilationUnit("E.java", buf.toString(), false, null);
+		CodeActionParams params = new CodeActionParams();
+		params.setTextDocument(new TextDocumentIdentifier(JDTUtils.toURI(unit)));
+		final Range range = CodeActionUtil.getRange(unit, "bar");
+		params.setRange(range);
+		CodeActionContext context = new CodeActionContext(
+			Collections.emptyList(),
+			Collections.singletonList(CodeActionKind.Source)
+		);
+		params.setContext(context);
+
+		List<Either<Command, CodeAction>> codeActions = server.codeAction(params).join();
+		Assert.assertNotNull(codeActions);
+		Assert.assertFalse("No source actions were found", codeActions.isEmpty());
+		for (Either<Command, CodeAction> codeAction : codeActions) {
+			Assert.assertNull("Should defer the edit property to the resolveCodeAction request", codeAction.getRight().getEdit());
+		}
+
+		Optional<Either<Command, CodeAction>> generateConstructorResponse = codeActions.stream().filter(codeAction -> {
+			return "Generate Constructors".equals(codeAction.getRight().getTitle());
+		}).findFirst();
+		Assert.assertTrue("Should return the quick assist 'Convert to lambda expression'", generateConstructorResponse.isPresent());
+		CodeAction unresolvedCodeAction = generateConstructorResponse.get().getRight();
+		Assert.assertNotNull("Should preserve the data property for the unresolved code action", unresolvedCodeAction.getData());
+
+		CodeAction resolvedCodeAction = server.resolveCodeAction(unresolvedCodeAction).join();
+		Assert.assertNotNull("Should resolve the edit property in the resolveCodeAction request", resolvedCodeAction.getEdit());
+		String actual = CodeActionUtil.evaluateWorkspaceEdit(resolvedCodeAction.getEdit());
+		buf = new StringBuilder();
+		buf.append("public class E {\n");
+		buf.append("    private void hello() {\n");
+		buf.append("    }\n");
+		buf.append("\n");
+		buf.append("    /**\n");
+		buf.append("     * \n");
+		buf.append("     */\n");
+		buf.append("    public E() {\n");
+		buf.append("    }\n");
+		buf.append("}\n");
+		Assert.assertEquals(buf.toString(), actual);
+	}
+
 	private Diagnostic getDiagnostic(String code, Range range){
 		Diagnostic $ = new Diagnostic();
 		$.setCode(code);

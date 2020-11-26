@@ -58,7 +58,7 @@ import org.eclipse.lsp4j.WorkspaceEdit;
 import org.eclipse.lsp4j.jsonrpc.messages.Either;
 
 public class CodeActionHandler {
-	public static final ResponseStore<ChangeCorrectionProposal> codeActionStore = new ResponseStore<>();
+	public static final ResponseStore<Either<ChangeCorrectionProposal, CodeActionProposal>> codeActionStore = new ResponseStore<>();
 	public static final String COMMAND_ID_APPLY_EDIT = "java.apply.workspaceEdit";
 
 	private QuickFixProcessor quickFixProcessor;
@@ -181,11 +181,20 @@ public class CodeActionHandler {
 	}
 
 	private void populateDataFields(List<Either<Command, CodeAction>> codeActions) {
-		ResponseStore.ResponseItem<ChangeCorrectionProposal> response = codeActionStore.createResponse();
-		List<ChangeCorrectionProposal> proposals = new ArrayList<>();
+		ResponseStore.ResponseItem<Either<ChangeCorrectionProposal, CodeActionProposal>> response = codeActionStore.createResponse();
+		List<Either<ChangeCorrectionProposal, CodeActionProposal>> proposals = new ArrayList<>();
 		codeActions.forEach(action -> {
-			if (action.isRight() && action.getRight().getData() instanceof ChangeCorrectionProposal) {
-				ChangeCorrectionProposal proposal = (ChangeCorrectionProposal) action.getRight().getData();
+			if (action.isRight()) {
+				Either<ChangeCorrectionProposal, CodeActionProposal> proposal = null;
+				if (action.getRight().getData() instanceof ChangeCorrectionProposal) {
+					proposal = Either.forLeft((ChangeCorrectionProposal) action.getRight().getData());
+				} else if (action.getRight().getData() instanceof CodeActionProposal) {
+					proposal = Either.forRight((CodeActionProposal) action.getRight().getData());
+				} else {
+					action.getRight().setData(null);
+					return;
+				}
+
 				Map<String, String> data = new HashMap<>();
 				data.put(CodeActionResolveHandler.DATA_FIELD_REQUEST_ID, String.valueOf(response.getId()));
 				data.put(CodeActionResolveHandler.DATA_FIELD_PROPOSAL_ID, String.valueOf(proposals.size()));
